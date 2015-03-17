@@ -8,14 +8,43 @@
 # Script.SendRC(channel,pwm,sendnow)
 #
 
-import sys
-import socket, threading
+import sys, math, socket, threading, os, time, subprocess, clr
 sys.path.append(r"c:\Python27\Lib\site-packages")
 sys.path.append(r"c:\Python27\Lib")
-import os, time, subprocess, clr
+#import os, time, subprocess, clr
 
 import MissionPlanner
 clr.AddReference("MissionPlanner.Utilities")
+
+# * * * * * * * * * * * * * * * * * * * * * * *
+#
+# translates latitude and longitude against an angle and magnitude
+#
+# * * * * * * * * * * * * * * * * * * * * * * *
+
+def translate(mag, lat, lon, angle):
+	distanceNorth = math.cos(math.radians(angle)) * mag
+	distanceEast = math.sin(math.radians(angle)) * mag
+	print 'Distance North to start point: ',
+	print distanceNorth
+	print 'Distance East to start point: ',
+	print distanceEast
+	earthRadius = 6371000.0
+	newLat = lat + (distanceNorth / earthRadius) * 180.0 / math.pi
+	newLon = lon + (distanceEast / (earthRadius * math.cos(newLat * 180.0 / math.pi))) * 180 / math.pi
+	ret = [newLat, newLon]
+	return ret
+	
+'''def translate2(mag, lat, lon, angle):
+	distanceNorth = math.sin(angle) * mag
+	distanceEast = math.cos(angle) * mag
+	lat_const = 111111.0/1.0 #111111 meters in 1 deg Latitude
+	new_lat = lat + (distanceNorth * lat_const)
+	lon_const = (111111.0 * math.cos(new_lat))/1.0
+	new_lon = lon + (distanceEast * lon_const)
+	ret = [new_lat, new_lon]
+	return ret
+'''	
 
 print 'Start Script'
 for chan in range(1,9):
@@ -95,7 +124,10 @@ print 'Arming Ground Avoidance'
 
 while True:
 
-	#print cs.alt
+	#print cs.alt,
+	#print ' (',
+	#print cs.alt_error,
+	#print ' ERR)'
 
 	if cs.alt > user_alt:
 		temp = ''
@@ -119,7 +151,7 @@ while True:
 			user_alt = int(temp[3:])
 			print 'New Minimum Altitude Set: ' + string(user_alt)
 			
-		#Close command
+		#Close Script
 		if temp == 'close':
 			print 'Waiting for thread to return'
 			Script.Sleep(2000) #ms
@@ -127,7 +159,136 @@ while True:
 			serversock.close()
 			print 'Ending Script...'
 			break
-
+			
+		#Return Home and Land
+		if temp == 'home':
+			MAV.setMode("STABILIZE")
+			Script.Sleep(2000) #ms
+			print 'Current Flight Mode: ',
+			print cs.mode
+			MAV.setMode("RTL")
+			Script.Sleep(2000) #ms
+			print 'Current Flight Mode: ',
+			print cs.mode
+			
+		#Land
+		if temp == 'land':
+			MAV.setMode("LAND")
+			Script.Sleep(2000) #ms
+			print 'Current Flight Mode: ',
+			print cs.modes
+			break
+			
+		#Manual Control (Auto)
+		if temp == 'manual':
+			MAV.setMode("AUTO")
+			Script.Sleep(2000) #ms
+			print 'Current Flight Mode: ',
+			print cs.modes
+			
+		#Dev-mode reset
+		if temp == 'devreset':
+			MAV.setMode("AUTO")
+			Script.Sleep(2000) #ms
+			print 'Current Flight Mode: ',
+			print cs.mode
+			
+		# Calculated Decent
+		if temp[:4] == 'calc':
+		
+			usr_args = temp.split()
+			s_alt = cs.alt
+			if s_alt < 10:
+				print 'Your altitude is too low to use for a calculated decent.'
+				print 'Switching to the optional starting altitude argument.'
+				s_alt = s_alt = float(usr_args[6])
+				
+			usr_args = temp.split()
+			f_lat = float(usr_args[1])
+			f_lon = float(usr_args[2])
+			f_alt = float(usr_args[3])
+			angle = float(usr_args[4])
+			dir = float(usr_args[5])
+			
+			h = s_alt - f_alt
+			mag = h / math.tan(angle)
+			
+			pair = translate(mag, f_lat, f_lon, dir+180)
+			s_lat = pair[0]
+			s_lon = pair[1]
+			
+			print 'Ground Distance: ',
+			print mag
+			print 'Starting Latitude:  ',
+			print s_lat
+			print 'Starting Longitude: ',
+			print s_lon
+			print 'Starting Altitude:  ',
+			print s_alt
+			print 'Building waypoints'
+			print 'traveling....'
+			Script.Sleep(2000) #ms
+			print 'At Start Point. '
+			Script.Sleep(1000) #ms
+			print 'CAMERA ON'
+			Script.Sleep(1000) #ms
+			print 'Traveling to endpoint...'
+			Script.Sleep(2000) #ms
+			print 'At endpoint'
+			print 'CAMERA OFF'
+			print 'Done'
+			
+			
+		#Launch
+		if temp == 'launch':
+			print 'Getting home(ground) cordinates'
+			high_alt = 2
+			low_alt = 1
+			home_lat = cs.lat
+			home_lon = cs.lng
+			home_alt = cs.alt
+			Script.Sleep(2000) #ms
+			
+			print 'Target Air Speed: ',
+			print cs.targetairspeed
+			
+			print 'Building waypoint 1 ', 
+			print high_alt,
+			print 'm above home(ground)'
+			wp1 = MissionPlanner.Utilities.Locationwp() # creating waypoint
+			MissionPlanner.Utilities.Locationwp.lat.SetValue(wp1,home_lat)     # sets latitude
+			MissionPlanner.Utilities.Locationwp.lng.SetValue(wp1,home_lon)     # sets longitude
+			MissionPlanner.Utilities.Locationwp.alt.SetValue(wp1,home_alt + high_alt )     # sets altitude
+			
+			print 'Building waypoint 2 ', 
+			print low_alt,
+			print 'm above home(ground)'
+			wp2 = MissionPlanner.Utilities.Locationwp() # creating waypoint
+			MissionPlanner.Utilities.Locationwp.lat.SetValue(wp2,home_lat)     # sets latitude
+			MissionPlanner.Utilities.Locationwp.lng.SetValue(wp2,home_lon)     # sets longitude
+			MissionPlanner.Utilities.Locationwp.alt.SetValue(wp2,home_alt + low_alt )     # sets altitude
+			
+			print 'Flying to waypoint 1'
+			MAV.setGuidedModeWP(wp1)
+			#Script.Sleep(20000) #ms
+			while cs.alt < (home_alt + high_alt - 1):
+				Script.Sleep(1000) #ms
+			
+			print 'CAMERA ON'
+			print 'Decending to waypoint 2'
+			MAV.setGuidedModeWP(wp2)
+			while cs.alt > (home_alt + low_alt + 1):
+				Script.Sleep(1000) #ms
+			
+			print 'CAMERA OFF'
+			print 'Landing'
+			MAV.setMode("LAND")
+			Script.Sleep(2000) #ms
+			print 'Current Flight Mode: ',
+			print cs.mode
+			break
+			
+			
 	else:
 		print 'TOO LOW!'
 
@@ -170,7 +331,7 @@ while True:
 
 		print 'Done'
 		print 'Disabling ground avoidance'
-		break
+		#break
 
 
 
